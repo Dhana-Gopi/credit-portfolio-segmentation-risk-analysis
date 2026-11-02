@@ -1,0 +1,6 @@
+Cluster,Segment_Name,Borrowers,Borrower_Share_%,Defaults,Default_Rate_%,Relative_Default_Index,Default_Share_%,Avg_Original_Loan,Total_Original_Principal,Principal_Share_%
+0,Higher-FICO Mortgage-Oriented,34893,15.4889,3645,10.4462,0.4907,7.6004,12543.129,437667400,13.4531
+1,Shorter-Employment Renters,51155,22.7076,11457,22.3966,1.0521,23.8897,9205.6392,470914475,14.4751
+2,Higher-Income Larger-Loan,48391,21.4807,11976,24.7484,1.1625,24.9719,28375.0522,1373097150,42.2065
+3,Higher Debt-Burden,43259,19.2026,12542,28.9928,1.3619,26.152,10929.8684,472815175,14.5335
+4,Longer-Employment Lower-DTI,47579,21.1202,8338,17.5245,0.8232,17.386,10483.3645,498788000,15.3318
