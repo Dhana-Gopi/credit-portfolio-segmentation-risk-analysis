@@ -1,7 +1,3 @@
-"""Credit Portfolio Intelligence | White & Yellow edition.
-Run: streamlit run app.py
-Research dashboard: historical segmentation, not underwriting advice.
-"""
 from pathlib import Path
 import warnings
 from html import escape
@@ -12,7 +8,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 ROOT = Path(__file__).resolve().parent
-DATA = ROOT / 'project_outputs'
+DATA = ROOT  # GitHub repository stores CSVs in its root directory
 YELLOW = '#F4B400'
 GOLD = '#C78B00'
 INK = '#202735'
@@ -58,7 +54,7 @@ def load_scorecard(path,mtime):
 
 score_path = DATA/'credit_segment_scorecard.csv'
 if not score_path.exists():
-    st.error('Missing project_outputs/credit_segment_scorecard.csv')
+    st.error('Missing credit_segment_scorecard.csv in the repository root')
     st.stop()
 df=load_scorecard(str(score_path),score_path.stat().st_mtime)
 required={'Cluster','Segment_Name','Borrowers','Defaults','Default_Rate_%','Relative_Default_Index','Total_Original_Principal','Principal_Share_%','Default_Share_%','Borrower_Share_%','Avg_Original_Loan'}
@@ -308,7 +304,7 @@ elif page=='Model Lab':
 elif page=='Dataset Executive Overview':
     heading('Dataset Executive Overview','Explore the original loan dataset through historical, aggregated EDA with transparent year and dimension filters')
     if eda.empty:
-        st.error('EDA aggregates missing. Place eda_aggregates.csv in project_outputs/.')
+        st.error('EDA aggregates missing. Place eda_aggregates.csv in the repository root.')
         st.stop()
     years=['All']+sorted([y for y in eda['Year'].astype(str).unique() if y!='All'])
     filters=st.columns([1,1,1.4],gap='large')
@@ -392,7 +388,7 @@ elif page=='Borrower Sandbox':
             try:
                 import joblib
                 from borrower_preprocessing import preprocess_borrowers
-                bundle=joblib.load(ROOT/'models'/'final_kmeans_model.joblib')
+                bundle=joblib.load(ROOT/'final_kmeans_model.joblib')
                 raw=pd.DataFrame([{'revenue':income,'loan_amnt':amount,'fico_n':fico,'dti_n':dti,'emp_length':employment,'home_ownership_n':ownership,'purpose':purpose}])
                 features=preprocess_borrowers(raw)
                 if features.columns.tolist()!=bundle['feature_columns']:
