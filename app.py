@@ -1,506 +1,420 @@
-"""Credit Portfolio Segmentation & Risk Pattern Analysis — Streamlit dashboard.
-
-Place this file in Credit_Portfolio_Segmentation/app.py alongside project_outputs/.
-Required: project_outputs/credit_segment_scorecard.csv
+"""Credit Portfolio Intelligence | White & Yellow edition.
 Run: streamlit run app.py
+Research dashboard: historical segmentation, not underwriting advice.
 """
 from pathlib import Path
+import warnings
+from html import escape
+import numpy as np
 import pandas as pd
-import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
-
-st.set_page_config(page_title="Credit Portfolio Intelligence", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
-
-YELLOW = "#F4B400"
-DARK_YELLOW = "#D18C00"
-INK = "#202735"
-MUTED = "#687385"
-BG = "#FFFDF5"
-COLORS = ["#F4B400", "#F8CD54", "#EAA11C", "#D58B10", "#FFE29A"]
-
-st.markdown("""
-<style>
-:root { --accent:#F4B400; }
-.stApp {background: #FFFDF5; color:#202735;}
-[data-testid="stSidebar"] {display:none;}
-[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2 {color:#202735;}
-.block-container {padding-top:1rem; padding-bottom:3rem; max-width:1650px;}
-h1,h2,h3 {color:#202735 !important; letter-spacing:-.025em;}
-h1 {font-size:2.05rem !important;}
-[data-testid="stRadio"] [role="radiogroup"] {background:#FFF4D1;padding:8px;border-radius:12px;}
-[data-testid="stRadio"] label {font-weight:600;}
-.section-title {font-size:1.05rem;font-weight:800;color:#202735;margin-bottom:.5rem;}
-.right-panel {background:#FFFFFF;border:1px solid #F1DCA2;border-radius:12px;padding:18px 20px;margin-bottom:14px;line-height:1.55;}
-.right-panel h4 {margin:0 0 8px;color:#202735;}
-.right-panel p {margin:0 0 10px;}
-.right-panel ul {padding-left:20px;margin:0;}
-h2 {font-size:1.45rem !important;}
-[data-testid="stMetric"] {background:#FFFFFF; border:1px solid #F2DEAC; border-top:4px solid #F4B400; border-radius:13px; padding:16px 17px; box-shadow:0 3px 12px rgba(103,75,8,.045);}
-[data-testid="stMetricLabel"] {color:#687385;}
-[data-testid="stMetricValue"] {color:#202735; font-weight:750;}
-.insight {background:#FFF8E2; border-left:4px solid #F4B400; border-radius:8px; padding:14px 18px; margin:12px 0 22px; color:#394150;}
-.section-caption {color:#687385; font-size:.94rem; margin-bottom:1rem;}
-.small-note {font-size:.83rem; color:#687385;}
-[data-testid="stDataFrame"] {border:1px solid #F2DEAC; border-radius:9px; overflow:hidden;}
-hr {border-color:#F2DEAC !important;}
-</style>
-""", unsafe_allow_html=True)
+import streamlit as st
 
 ROOT = Path(__file__).resolve().parent
-SCORECARD_PATH = ROOT / "project_outputs" / "credit_segment_scorecard.csv"
-REQUIRED = ["Cluster", "Segment_Name", "Borrowers", "Borrower_Share_%", "Defaults", "Default_Rate_%", "Relative_Default_Index", "Default_Share_%", "Avg_Original_Loan", "Total_Original_Principal", "Principal_Share_%"]
+DATA = ROOT / 'project_outputs'
+YELLOW = '#F4B400'
+GOLD = '#C78B00'
+INK = '#202735'
+GRAY = '#657080'
+PALETTE = ['#F4B400','#E1A200','#F7CF5C','#D68C00','#FFE49B']
+
+st.set_page_config(page_title='Credit Portfolio Intelligence', page_icon='🟡', layout='wide', initial_sidebar_state='collapsed')
+st.markdown('''<style>
+:root {color-scheme: light;}
+.stApp {background:#FFFFFF;color:#222222}
+[data-testid="stSidebar"] {background:#FFFFFF;border-right:1px solid #EDE8D9}
+.block-container {padding-top:1.5rem;max-width:1480px;padding-left:2rem;padding-right:2rem;padding-bottom:3rem}
+h1,h2,h3 {color:#202735 !important;letter-spacing:-.025em}
+h1 {font-size:2rem !important}
+[data-testid="stMetric"] {background:#fff;border:1px solid #EDE8D9;border-top:3px solid #F4B400;border-radius:13px;padding:15px 17px;box-shadow:0 3px 12px #17171708}
+[data-testid="stMetricLabel"] {color:#657080}
+[data-testid="stMetricValue"] {color:#202735;font-weight:750}
+[data-testid="stVerticalBlockBorderWrapper"] {border-color:#EDE8D9 !important}
+.stButton>button[kind="primary"],button[kind="primary"] {background:#F4B400;color:#202735;border:0;font-weight:700}
+.stButton>button[kind="primary"]:hover {background:#E5A500;color:#202735}
+.stTabs [data-baseweb="tab-highlight"] {background:#F4B400}
+[data-testid="stDataFrame"] {border:1px solid #EDE8D9;border-radius:10px}
+.note {background:#FFFBE6;border-left:4px solid #F4B400;padding:13px 17px;border-radius:8px;margin:12px 0 18px}
+.eyebrow {color:#9A7400;text-transform:uppercase;letter-spacing:.12em;font-size:.73rem;font-weight:800}
+hr {border-color:#EDE8D9 !important}
+.insight-card{background:#FFFBE6;border-left:4px solid #F2C300;border-radius:7px;padding:10px 12px;margin:6px 0 11px;font-size:12px;line-height:1.5;color:#222}
+.section-title{font-weight:850;font-size:1.15rem;border-bottom:2px solid #F2C300;padding-bottom:4px;margin:14px 0 9px}
+[data-testid="stMetric"]{background:#FFFBE6 !important;border-top:0 !important;border-left:4px solid #F2C300 !important}
+[data-testid="stRadio"] [role="radiogroup"]{background:#FFFBE6;border:1px solid #F2C300;border-radius:10px;padding:6px 9px;gap:14px;flex-wrap:wrap}
+[data-testid="stRadio"] label{font-weight:700}
+.chart-explainer{border-top:1px solid #F1E9D0;padding:11px 4px 2px;color:#596273;font-size:12px;line-height:1.55;min-height:66px}
+.chart-explainer b{color:#8D6A00;display:block;font-size:11px;text-transform:uppercase;letter-spacing:.045em;margin-bottom:3px}
+[data-testid="stVerticalBlockBorderWrapper"]{border-radius:15px !important;box-shadow:0 4px 22px rgba(32,39,53,.045)}
+[data-testid="stHorizontalBlock"]{row-gap:1.4rem}
+[data-testid="stRadio"] [role="radiogroup"]{justify-content:center;gap:6px !important;background:#fff !important;border:0 !important;border-bottom:1px solid #EDE8D9 !important;border-radius:0 !important;padding-bottom:12px !important}
+[data-testid="stRadio"] label{padding:9px 12px;border-radius:9px;white-space:nowrap}
+[data-testid="stRadio"] label:has(input:checked){background:#FFF4C2;color:#202735}
+</style>''',unsafe_allow_html=True)
 
 @st.cache_data(show_spinner=False)
-def load_scorecard(path: str, modified: float) -> pd.DataFrame:
+def load_scorecard(path,mtime):
     return pd.read_csv(path)
 
-if not SCORECARD_PATH.is_file():
-    st.error(f"Required scorecard not found: {SCORECARD_PATH}")
-    st.info("Keep app.py in your Credit_Portfolio_Segmentation folder and the CSV inside project_outputs.")
+score_path = DATA/'credit_segment_scorecard.csv'
+if not score_path.exists():
+    st.error('Missing project_outputs/credit_segment_scorecard.csv')
     st.stop()
+df=load_scorecard(str(score_path),score_path.stat().st_mtime)
+required={'Cluster','Segment_Name','Borrowers','Defaults','Default_Rate_%','Relative_Default_Index','Total_Original_Principal','Principal_Share_%','Default_Share_%','Borrower_Share_%','Avg_Original_Loan'}
+if not required.issubset(df.columns):
+    st.error('Scorecard is missing required columns: '+', '.join(sorted(required-set(df.columns))))
+    st.stop()
+for col in required-{'Segment_Name'}:
+    df[col]=pd.to_numeric(df[col],errors='raise')
+df=df.sort_values('Cluster').reset_index(drop=True)
+N=int(df.Borrowers.sum());D=int(df.Defaults.sum());R=100*D/N;P=float(df.Total_Original_Principal.sum())
 
-try:
-    df = load_scorecard(str(SCORECARD_PATH), SCORECARD_PATH.stat().st_mtime)
-except Exception as exc:
-    st.error(f"Could not read scorecard: {exc}")
-    st.stop()
-missing = [c for c in REQUIRED if c not in df.columns]
-if missing:
-    st.error(f"Missing required scorecard columns: {missing}")
-    st.stop()
-if df.empty or df["Cluster"].duplicated().any():
-    st.error("Scorecard must have one unique row per segment.")
-    st.stop()
-for col in ["Borrowers", "Defaults", "Borrower_Share_%", "Default_Rate_%", "Relative_Default_Index", "Default_Share_%", "Avg_Original_Loan", "Total_Original_Principal", "Principal_Share_%"]:
-    df[col] = pd.to_numeric(df[col], errors="coerce")
-if df[REQUIRED].isna().any().any() or (df["Borrowers"] <= 0).any():
-    st.error("The scorecard has invalid or missing required values.")
-    st.stop()
-df = df.sort_values("Cluster").reset_index(drop=True)
+BENCHMARK=pd.DataFrame({'Algorithm':['K-Means','Hierarchical','DBSCAN'],'Silhouette':[.1418,.0839,.0500],'Clusters':[5,5,9],'Noise share (%)':[0,0,16.18],'Fit time (s)':[.0778,.2148,.0332]})
+ELBOW=pd.DataFrame({'K':list(range(2,9)),'Inertia':[257774.81,230326.12,208976.43,192071.65,181523.24,173178.17,167138.15]})
+SIL=pd.DataFrame({'K':[4,5,6],'Silhouette':[.1449,.1393,.1364]})
+TEMP=pd.DataFrame({'Cluster':[0,1,2,3,4],'Training':[8.29,18.28,19.66,24.80,16.35],'Validation':[10.22,23.61,24.68,31.14,19.85],'Test':[10.45,22.40,24.75,28.99,17.52]})
+STABILITY=pd.DataFrame({'K':[4,5],'Across initializations (ARI)':[.9768,.9918],'Across borrower samples (ARI)':[.8826,.8477]})
+PROFILES=pd.DataFrame({'Cluster':[0,1,2,3,4],'Average income':[76410,55750,126703,49056,76342],'Average DTI':[13.96,14.77,17.80,28.19,13.65],'Average FICO':[760.96,686.27,699.78,688.88,684.64],'Average loan':[13733,9981,27014,11588,11559],'Average employment years':[None,2.26,None,None,8.98]})
+PROFILES=PROFILES.merge(df[['Cluster','Segment_Name']],on='Cluster')
 
-TOTAL = int(df["Borrowers"].sum())
-DEFAULTS = int(df["Defaults"].sum())
-RATE = DEFAULTS / TOTAL * 100
-PRINCIPAL = float(df["Total_Original_Principal"].sum())
-
-# Benchmark results come from the 5,000-row training comparison experiment.
-BENCHMARK = pd.DataFrame({
-    "Algorithm": ["K-Means", "Hierarchical", "DBSCAN"],
-    "Clusters": [5, 5, 9],
-    "Silhouette": [0.1418, 0.0839, 0.0500],
-    "Fit_seconds": [0.0778, 0.2148, 0.0332],
-    "Noise_%": [0.0, 0.0, 16.18],
-    "Evaluation_population": ["Sampled from all 5,000", "Sampled from all 5,000", "Sampled from 4,191 non-noise"]
-})
-ANOMALY = pd.DataFrame({
-    "Group": ["Clustered", "Noise"],
-    "Borrowers": [4191, 809],
-    "Historical defaults": [799, 138],
-    "Historical default rate (%)": [19.06, 17.06],
-    "Average income": [71514.56, 93058.75],
-    "Average DTI": [18.34, 16.10],
-    "Average original loan": [14463.99, 13761.16],
-    "Average FICO": [692.34, 718.29]
-})
-
-def plot_style(fig, height=380):
-    fig.update_layout(
-        template="plotly_white", height=height,
-        paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
-        font=dict(color=INK, family="Arial"),
-        margin=dict(l=15, r=20, t=48, b=35),
-        title_font=dict(size=16, color=INK),
-        legend=dict(orientation="h", y=-0.2),
-    )
-    fig.update_xaxes(showgrid=False, linecolor="#E8E3D9")
-    fig.update_yaxes(gridcolor="#F0EDE5", zeroline=False)
+def fig_style(fig,height=390,percent=False):
+    fig.update_layout(template='plotly_white',height=height,paper_bgcolor='#fff',plot_bgcolor='#fff',font=dict(family='Arial',color=INK),margin=dict(l=15,r=20,t=40,b=40),legend=dict(orientation='h',y=-.25),hoverlabel=dict(bgcolor='white',font_color=INK))
+    fig.update_xaxes(showgrid=False,zeroline=False,linecolor='#E8E8E8')
+    fig.update_yaxes(gridcolor='#F0F0F0',zeroline=False)
+    if percent:fig.update_yaxes(ticksuffix='%')
     return fig
 
-def insight(text):
-    st.markdown(f'<div class="insight"><b>Business insight</b><div style="margin-top:5px">{text}</div></div>', unsafe_allow_html=True)
+CHART_MEANINGS = {
+    'Borrowers by segment': 'Shows how the historical test borrowers are distributed among the five segments; volume alone does not indicate risk.',
+    'Historical default rate by segment': 'Compares the observed frequency of default across segments. The dashed line marks the full test-portfolio average.',
+    'Share of original principal': 'Shows where the original loan principal is concentrated; it is not the current outstanding balance or realized loss.',
+    'Share of recorded defaults': 'Shows each segment’s contribution to total observed defaults, which depends on both segment size and default rate.',
+    'Historical default-rate comparison': 'Compares observed default frequency between selected historical segments; it is not a borrower-level probability.',
+    'Principal concentration vs default frequency': 'Each bubble represents a segment: rightward means greater principal share, upward means higher default frequency, and size reflects borrower count.',
+    'Contribution to observed defaults': 'Shows what percentage of all observed defaulted borrowers came from each segment.',
+    'Relative default index': 'An index above 1.00 means the segment defaulted more frequently than the overall test cohort; below 1.00 means less frequently.',
+    'Elbow: K = 2 to 8': 'Shows within-cluster inertia falling as K increases. The bend helps assess diminishing returns; it does not identify a uniquely correct K.',
+    'Silhouette: K = 4, 5, 6': 'Shows how distinct the K-Means groups are. Scores near zero indicate overlapping clusters; K=4 is slightly higher here.',
+    'Silhouette on comparison sample': 'Compares geometric separation across algorithms on the notebook experiment. DBSCAN excludes noise from its silhouette calculation.',
+    'Measured single-run fit time': 'Shows execution time for the sampled experiment only; these are not production performance benchmarks.',
+    'K-Means stability (Adjusted Rand Index)': 'Compares consistency across random initializations and across different borrower samples. Higher ARI indicates more similar assignments.',
+    'Cluster default rates across training, validation and test': 'Tracks observed segment default rates across historical cohorts; different loan vintages may have different outcome maturity.',
+}
 
-def page_title(title, subtitle):
-    st.title(title)
-    st.markdown(f'<div class="section-caption">{subtitle}</div>', unsafe_allow_html=True)
+def chart(fig,height=340):
+    title = str(fig.layout.title.text or '').strip()
+    fig=fig_style(fig,height)
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=15,color=INK),x=0,xanchor='left'),
+        margin=dict(l=20,r=34,t=62,b=65),
+        uniformtext_minsize=10,uniformtext_mode='hide',
+        legend=dict(orientation='h',y=-0.24,x=0,font=dict(size=10)),
+        hovermode='closest',
+    )
+    fig.update_traces(cliponaxis=False,selector=dict(type='bar'))
+    with st.container(border=True):
+        st.plotly_chart(fig,use_container_width=True,config={'displayModeBar':False})
+        meaning=CHART_MEANINGS.get(title)
+        if meaning:
+            st.markdown(f'<div class="chart-explainer"><b>What this chart denotes</b><div>{meaning}</div></div>',unsafe_allow_html=True)
 
+def note(s):st.markdown(f'<div class="note">{s}</div>',unsafe_allow_html=True)
+def heading(title,subtitle):st.markdown('<div class="eyebrow">Credit portfolio intelligence</div>',unsafe_allow_html=True);st.title(title);st.caption(subtitle)
+def metric_row(items):
+    cols=st.columns(len(items))
+    for c,(name,value,helptext) in zip(cols,items):
+        c.metric(name,value,help=helptext)
 
-# Optional borrower-level data, required for real Year / Purpose / Status filters.
-# The five-row scorecard has no year, purpose or borrower-level outcome columns.
-DETAIL_PATH = ROOT / "project_outputs" / "credit_borrower_dashboard.csv"
+st.markdown('<h1 style="text-align:center;font-weight:900;color:#222;margin-bottom:0">CREDIT PORTFOLIO INTELLIGENCE</h1>',unsafe_allow_html=True)
+st.markdown('<p style="text-align:center;color:#666;margin:2px 0 12px">Borrower segmentation • Credit risk patterns • Portfolio exposure • Machine learning</p>',unsafe_allow_html=True)
+PAGES=['Dataset Executive Overview','Portfolio Overview','Segment Explorer','Risk & Exposure','Model Lab','Borrower Sandbox']
+page=st.radio('Dashboard navigation',PAGES,horizontal=True,label_visibility='collapsed',key='top_navigation')
+st.divider()
+
 @st.cache_data(show_spinner=False)
-def load_details(path, modified):
-    return pd.read_csv(path, low_memory=False)
+def read_eda(path,mtime):
+    return pd.read_csv(path,dtype={'Year':str,'Category':str})
+eda_path=DATA/'eda_aggregates.csv'
+eda=read_eda(str(eda_path),eda_path.stat().st_mtime) if eda_path.exists() else pd.DataFrame()
 
-has_details = DETAIL_PATH.is_file()
-detail = None
-if has_details:
-    try:
-        detail = load_details(str(DETAIL_PATH), DETAIL_PATH.stat().st_mtime)
-        if not {"Cluster", "Default", "loan_amnt"}.issubset(detail.columns):
-            st.warning("Borrower-level file needs Cluster, Default and loan_amnt columns. Using the verified scorecard.")
-            detail = None
-        else:
-            detail["Cluster"] = pd.to_numeric(detail["Cluster"], errors="coerce")
-            detail["Default"] = pd.to_numeric(detail["Default"], errors="coerce")
-            detail["loan_amnt"] = pd.to_numeric(detail["loan_amnt"], errors="coerce")
-            detail = detail.dropna(subset=["Cluster", "Default", "loan_amnt"])
-            detail = detail[detail["Cluster"].isin(df["Cluster"])]
-            detail = detail[detail["Default"].isin([0,1])]
-            if detail.empty:
-                st.warning("Borrower-level file contains no valid rows. Using the scorecard.")
-                detail = None
-    except Exception as exc:
-        st.warning(f"Could not read optional borrower-level file: {exc}")
-        detail = None
+def insight(text):
+    st.markdown(f'<div class="insight-card">{text}</div>',unsafe_allow_html=True)
 
-st.markdown("# 🟡 Credit Portfolio Intelligence")
-st.caption("Credit Portfolio Segmentation & Risk Pattern Analysis  |  Executive decision-support dashboard")
-page = st.radio("Dashboard pages", ["Executive Overview", "Segment Intelligence", "Model Evaluation", "Anomaly Analysis", "Borrower Segmentation"], horizontal=True, label_visibility="collapsed")
-st.divider()
+def insights_panel(title, points, subtitle=None):
+    """Reusable right-hand executive commentary rail."""
+    with st.container(border=True):
+        st.markdown('<div class="eyebrow">Executive interpretation</div>',unsafe_allow_html=True)
+        st.subheader(title)
+        if subtitle: st.caption(subtitle)
+        for heading_text,body in points:
+            st.markdown(
+                '<div class="insight-card"><strong>'+escape(str(heading_text))+'</strong><div style="margin-top:5px">'+escape(str(body))+'</div></div>',
+                unsafe_allow_html=True)
 
-# Scorecard is the verified source for the complete historical test portfolio.
-# Detailed filters are applied only when an aligned borrower-level export exists.
-view = df.copy()
-filter_active = False
-if page in ("Executive Overview", "Segment Intelligence"):
-    st.markdown('<div class="section-title">Portfolio filters</div>', unsafe_allow_html=True)
-    if detail is not None:
-        f1, f2, f3 = st.columns([1, 1.5, 1])
-        with f1:
-            if "issue_year" in detail.columns:
-                years = sorted(detail["issue_year"].dropna().astype(str).unique().tolist())
-                selected_years = st.multiselect("Loan issue year", years, default=years)
-            else:
-                selected_years = None
-                st.caption("Year filter requires issue_year in the detailed CSV")
-        with f2:
-            if "purpose" in detail.columns:
-                purposes = sorted(detail["purpose"].dropna().astype(str).unique().tolist())
-                selected_purposes = st.multiselect("Loan purpose", purposes, default=purposes)
-            else:
-                selected_purposes = None
-                st.caption("Purpose filter requires purpose in the detailed CSV")
-        with f3:
-            status = st.selectbox("Historical outcome", ["All borrowers", "Default", "Non-default"])
-        filtered = detail.copy()
-        if selected_years is not None:
-            filtered = filtered[filtered["issue_year"].astype(str).isin(selected_years)]
-        if selected_purposes is not None:
-            filtered = filtered[filtered["purpose"].astype(str).isin(selected_purposes)]
-        if status == "Default":
-            filtered = filtered[filtered["Default"] == 1]
-        elif status == "Non-default":
-            filtered = filtered[filtered["Default"] == 0]
-        filter_active = True
-        if filtered.empty:
-            st.warning("No borrowers match these filters. Change the selection.")
-            st.stop()
-        view = filtered.groupby("Cluster", as_index=False).agg(
-            Borrowers=("Default", "size"), Defaults=("Default", "sum"),
-            Total_Original_Principal=("loan_amnt", "sum"), Avg_Original_Loan=("loan_amnt", "mean")
-        ).merge(df[["Cluster", "Segment_Name"]], on="Cluster", how="left")
-        total_n = view["Borrowers"].sum()
-        total_d = view["Defaults"].sum()
-        total_p = view["Total_Original_Principal"].sum()
-        view["Borrower_Share_%"] = 100 * view["Borrowers"] / total_n
-        view["Default_Rate_%"] = 100 * view["Defaults"] / view["Borrowers"]
-        view["Default_Share_%"] = 100 * view["Defaults"] / total_d if total_d else 0
-        view["Principal_Share_%"] = 100 * view["Total_Original_Principal"] / total_p if total_p else 0
-        view["Relative_Default_Index"] = view["Default_Rate_%"] / (100*total_d/total_n) if total_d else 0
-        st.caption(f"Filtered historical cohort: {len(filtered):,} borrowers. Outcome filters change the denominator; do not interpret the resulting rate as the full-portfolio default rate.")
+
+def filtered_eda(year, dimension):
+    if eda.empty: return pd.DataFrame()
+    return eda.loc[(eda['Year'].astype(str)==str(year)) & (eda['Dimension']==dimension)].copy()
+
+
+def eda_visual(frame, metric, title, ordered=False, orientation='v', height=330):
+    if frame.empty:
+        st.info('No aggregated data available for this selection.')
+        return
+    frame=frame.copy()
+    if ordered: frame=frame.sort_values(metric,ascending=False)
+    if orientation=='h':
+        fig=px.bar(frame,x=metric,y='Category',orientation='h',color_discrete_sequence=[YELLOW],title=title,
+                   hover_data=['Borrowers','Defaults','Default_Rate_%'])
+        fig.update_layout(yaxis={'categoryorder':'total ascending'})
     else:
-        st.info("**Year, loan-purpose and default-status filters require borrower-level data.** The current saved scorecard contains only five aggregated segments, so these filters cannot be calculated accurately yet. Export `credit_borrower_dashboard.csv` with Cluster, Default, loan_amnt, issue_year and purpose to activate them. The segment selector below is available now.")
+        fig=px.bar(frame,x='Category',y=metric,color_discrete_sequence=[YELLOW],title=title,
+                   hover_data=['Borrowers','Defaults','Default_Rate_%'])
+        fig.update_xaxes(tickangle=-20)
+    if metric=='Default_Rate_%':fig.update_yaxes(ticksuffix='%' if orientation=='v' else None)
+    chart(fig,height)
 
-# Aggregate segment-rate filter is available with or without borrower-level data.
-if page in ("Executive Overview", "Segment Intelligence"):
-    low_rate, high_rate = st.slider(
-        "Segment historical default-rate range (%)",
-        min_value=0.0, max_value=100.0, value=(0.0, 100.0), step=0.5,
-        help="Select segments by their observed historical default rate. This is not an individual borrower default-probability filter."
-    )
-    view = view[view["Default_Rate_%"].between(low_rate, high_rate)].copy()
-    if view.empty:
-        st.warning("No segments match the selected default-rate range.")
-        st.stop()
-    if low_rate > 0 or high_rate < 100:
-        st.caption("Segment-rate filter active: KPI totals now cover only the selected segments.")
+def eda_chart(data,dimension,kind='count',top=12,height=235):
+    x=data[data.Dimension==dimension].copy()
+    if x.empty:
+        st.info('No data for this view');return x
+    if dimension in ['Purpose','State','Employment']:
+        x=x.nlargest(top,'Borrowers')
+    if kind=='rate':
+        fig=px.bar(x,x='Category',y='Default_Rate_%',color_discrete_sequence=[YELLOW],text='Default_Rate_%')
+        fig.update_traces(texttemplate='%{text:.1f}%',textposition='outside')
+        fig.update_yaxes(ticksuffix='%')
+    else:
+        fig=px.bar(x,x='Category',y='Borrowers',color_discrete_sequence=[YELLOW],text='Borrowers')
+        fig.update_traces(texttemplate='%{text:.2s}',textposition='outside')
+    fig.update_layout(height=height,margin=dict(l=5,r=5,t=10,b=35),showlegend=False,font=dict(size=10,color='#222'),paper_bgcolor='white',plot_bgcolor='white')
+    fig.update_xaxes(title='',tickangle=-25,showgrid=False)
+    fig.update_yaxes(title='',gridcolor='#F4F4F4')
+    st.plotly_chart(fig,use_container_width=True,config={'displayModeBar':False})
+    return x
 
-n = int(view["Borrowers"].sum())
-d = int(view["Defaults"].sum())
-r = 100*d/n if n else 0
-principal = float(view["Total_Original_Principal"].sum())
-
-if page == "Executive Overview":
-    page_title("Executive Overview", "Historical test portfolio • business performance, concentrations and borrower segmentation")
-    a,b,c,e = st.columns(4)
-    a.metric("Borrowers in view", f"{n:,}")
-    b.metric("Historical defaults", f"{d:,}")
-    c.metric("Historical default rate", f"{r:.2f}%")
-    e.metric("Original loan principal", f"{principal/1e9:.2f}B")
-    st.caption("Original principal uses unverified source currency units and is not outstanding exposure or realized credit loss.")
-    main, side = st.columns([3.2, 1.15], gap="large")
-    with main:
-        a,b = st.columns(2, gap="medium")
+if page=='Portfolio Overview':
+    heading('Portfolio Overview','A concise view of portfolio composition, observed defaults and original principal concentration')
+    metric_row([('Test borrowers',f'{N:,}','2017–2018 historical test portfolio'),('Historical defaults',f'{D:,}','Observed default outcomes'),('Observed default rate',f'{R:.2f}%','Historical cohort average'),('Original principal',f'{P/1e9:.2f}B','Source dataset units; not current outstanding exposure')])
+    visual,rail=st.columns([3.2,1.15],gap='large')
+    with visual:
+        a,b=st.columns(2,gap='medium')
         with a:
-            fig = px.bar(view.sort_values("Borrowers"), x="Borrowers", y="Segment_Name", orientation="h", text="Borrowers", title="Borrower distribution", color_discrete_sequence=[YELLOW])
-            fig.update_traces(texttemplate="%{text:,}", textposition="outside", cliponaxis=False)
-            st.plotly_chart(plot_style(fig, 390), use_container_width=True)
+            fig=px.bar(df.sort_values('Borrowers'),x='Borrowers',y='Segment_Name',orientation='h',text='Borrowers',title='Borrowers by segment',color_discrete_sequence=[YELLOW])
+            fig.update_traces(texttemplate='%{text:,}',textposition='outside');chart(fig)
         with b:
-            fig = px.bar(view.sort_values("Default_Rate_%"), x="Default_Rate_%", y="Segment_Name", orientation="h", text="Default_Rate_%", title="Historical default rate by segment", color_discrete_sequence=[YELLOW])
-            fig.update_traces(texttemplate="%{text:.2f}%", textposition="outside", cliponaxis=False)
-            fig.add_vline(x=r, line_dash="dash", line_color=DARK_YELLOW)
-            st.plotly_chart(plot_style(fig, 390), use_container_width=True)
-        a,b = st.columns(2, gap="medium")
+            fig=px.bar(df.sort_values('Default_Rate_%'),x='Default_Rate_%',y='Segment_Name',orientation='h',text='Default_Rate_%',title='Historical default rate by segment',color_discrete_sequence=[YELLOW])
+            fig.update_traces(texttemplate='%{text:.2f}%',textposition='outside');fig.add_vline(x=R,line_dash='dash',line_color=INK);chart(fig)
+        a,b=st.columns(2,gap='medium')
         with a:
-            fig = px.pie(view, names="Segment_Name", values="Total_Original_Principal", hole=.60, title="Original principal concentration", color_discrete_sequence=COLORS)
-            fig.update_traces(textinfo="percent")
-            st.plotly_chart(plot_style(fig, 375), use_container_width=True)
+            fig=px.bar(df.sort_values('Principal_Share_%'),x='Principal_Share_%',y='Segment_Name',orientation='h',text='Principal_Share_%',title='Share of original principal',color_discrete_sequence=[YELLOW])
+            fig.update_traces(texttemplate='%{text:.1f}%',textposition='outside');chart(fig)
         with b:
-            fig = px.bar(view.sort_values("Default_Share_%", ascending=False), x="Segment_Name", y="Default_Share_%", text="Default_Share_%", title="Share of historical defaults", color_discrete_sequence=[YELLOW])
-            fig.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-            fig.update_xaxes(tickangle=-25)
-            st.plotly_chart(plot_style(fig, 375), use_container_width=True)
-    with side:
-        st.markdown('''<div class="right-panel"><h4>Project objective</h4><p>Group borrowers by financial and demographic characteristics, compare historical default patterns, identify concentrations of original loan principal, and examine unusual profiles.</p><p><b>Methods:</b> K-Means, Hierarchical, DBSCAN, PCA, t-SNE and UMAP.</p></div>''', unsafe_allow_html=True)
-        if not view.empty:
-            high = view.loc[view["Default_Rate_%"].idxmax()]
-            concentrated = view.loc[view["Principal_Share_%"].idxmax()]
-            biggest = view.loc[view["Borrowers"].idxmax()]
-            st.markdown(f'''<div class="right-panel"><h4>Key takeaways</h4><ul><li><b>Highest observed default rate:</b> {high['Segment_Name']} ({high['Default_Rate_%']:.2f}%).</li><li><b>Largest principal concentration:</b> {concentrated['Segment_Name']} ({concentrated['Principal_Share_%']:.2f}%).</li><li><b>Largest borrower group:</b> {biggest['Segment_Name']} ({int(biggest['Borrowers']):,}).</li><li><b>Portfolio rate:</b> {r:.2f}% for the selected cohort.</li></ul></div>''', unsafe_allow_html=True)
-        st.markdown('''<div class="right-panel"><h4>Executive interpretation</h4><p>Segment default rates and original-principal shares measure different dimensions of the portfolio. Higher original principal does not establish higher realized loss.</p><p><b>Important:</b> Different loan vintages have unequal time to develop a default. Results are descriptive, not predictions or credit approval rules.</p></div>''', unsafe_allow_html=True)
-    with st.expander("Detailed segment scorecard"):
-        st.dataframe(view.round(3), use_container_width=True, hide_index=True)
+            fig=px.bar(df.sort_values('Default_Share_%'),x='Default_Share_%',y='Segment_Name',orientation='h',text='Default_Share_%',title='Share of recorded defaults',color_discrete_sequence=[YELLOW])
+            fig.update_traces(texttemplate='%{text:.1f}%',textposition='outside');chart(fig)
+    highest=df.loc[df['Default_Rate_%'].idxmax()]
+    largest=df.loc[df['Principal_Share_%'].idxmax()]
+    with rail:
+        insights_panel('Portfolio key takeaways',[
+            ('Highest historical default frequency',f'{highest.Segment_Name}: {highest["Default_Rate_%"]:.2f}% observed default rate. Review debt burden and cohort composition.'),
+            ('Largest original principal concentration',f'{largest.Segment_Name}: {largest["Principal_Share_%"]:.2f}% of original principal. This is not current outstanding exposure.'),
+            ('Default contribution','Default share measures contribution to total observed default cases, not loss amounts.'),
+            ('Interpretation boundary','These are historical test-cohort segment summaries, not borrower-level default predictions.')
+        ],'Test cohort only · five K-Means segments')
 
-elif page == "Segment Intelligence":
-    page_title("Segment Intelligence", "Compare borrower segments and investigate historical portfolio characteristics")
-    choice = st.selectbox("Select borrower segment", view["Segment_Name"].tolist())
-    seg = view.loc[view["Segment_Name"] == choice].iloc[0]
-    a,b,c,e = st.columns(4)
-    a.metric("Borrowers", f"{int(seg['Borrowers']):,}")
-    b.metric("Borrower share", f"{seg['Borrower_Share_%']:.2f}%")
-    c.metric("Historical default rate", f"{seg['Default_Rate_%']:.2f}%")
-    e.metric("Principal share", f"{seg['Principal_Share_%']:.2f}%")
-    main,side = st.columns([3.2,1.15],gap="large")
-    with main:
-        a,b=st.columns(2)
-        with a:
-            fig=go.Figure(go.Bar(x=["Selected segment","Portfolio"],y=[seg["Default_Rate_%"],r],marker_color=[YELLOW,"#AAB2BE"],text=[f"{seg['Default_Rate_%']:.2f}%",f"{r:.2f}%"],textposition="outside"))
-            fig.update_layout(title="Historical default rate vs portfolio",yaxis_title="Default rate (%)")
-            st.plotly_chart(plot_style(fig),use_container_width=True)
-        with b:
-            fig=go.Figure(go.Bar(x=["Borrower share","Principal share","Default share"],y=[seg["Borrower_Share_%"],seg["Principal_Share_%"],seg["Default_Share_%"]],marker_color=COLORS[:3],text=[f"{seg[k]:.1f}%" for k in ["Borrower_Share_%","Principal_Share_%","Default_Share_%"]],textposition="outside"))
-            fig.update_layout(title="Selected segment contribution",yaxis_title="Share (%)")
-            st.plotly_chart(plot_style(fig),use_container_width=True)
-        st.subheader("Segment comparison")
-        st.dataframe(view[["Segment_Name","Borrowers","Borrower_Share_%","Default_Rate_%","Relative_Default_Index","Principal_Share_%"]].round(2),hide_index=True,use_container_width=True)
-    with side:
-        st.markdown(f'''<div class="right-panel"><h4>Selected segment</h4><p><b>{choice}</b></p><p>Relative historical default index: <b>{seg['Relative_Default_Index']:.2f}</b> (1.00 = current cohort average).</p></div>''',unsafe_allow_html=True)
-        st.markdown('''<div class="right-panel"><h4>How to interpret</h4><p>Segment names summarize group characteristics, not eligibility decisions. Differences in historical default rates may reflect borrower composition and loan observation periods.</p></div>''',unsafe_allow_html=True)
+elif page=='Segment Explorer':
+    heading('Segment Explorer','Compare two segments directly, then examine their original financial characteristics')
+    a,b=st.columns(2,gap='large')
+    names=df.Segment_Name.tolist()
+    with a:one=st.selectbox('First segment',names,index=3)
+    with b:two=st.selectbox('Compare against',names,index=0)
+    sel=df[df.Segment_Name.isin([one,two])].copy()
+    fig=px.bar(sel,x='Segment_Name',y='Default_Rate_%',color='Segment_Name',text='Default_Rate_%',color_discrete_sequence=PALETTE,title='Historical default-rate comparison')
+    fig.update_traces(texttemplate='%{text:.2f}%',textposition='outside');fig.update_layout(showlegend=False)
+    chart(fig)
+    col1,col2=st.columns(2,gap='large')
+    for col,name in [(col1,one),(col2,two)]:
+        s=df[df.Segment_Name==name].iloc[0]
+        with col:
+            with st.container(border=True):
+                st.subheader(name)
+                st.metric('Historical default rate',f'{s["Default_Rate_%"]:.2f}%')
+                st.metric('Relative default index',f'{s["Relative_Default_Index"]:.2f}×')
+                st.metric('Borrowers',f'{int(s.Borrowers):,}')
+                st.metric('Principal share',f'{s["Principal_Share_%"]:.2f}%')
+    st.subheader('Financial characteristics (training sample)')
+    p=PROFILES[PROFILES.Segment_Name.isin([one,two])].set_index('Segment_Name')
+    st.dataframe(p[['Average income','Average DTI','Average FICO','Average loan','Average employment years']].T, use_container_width=True)
+    st.caption('Profile averages come from the 50,000-borrower training sample; default-rate KPIs come from the later test portfolio. They are different populations.')
 
-elif page == "Model Evaluation":
-    page_title("Model Evaluation", "Comparison on 5,000 training borrowers using 24 preprocessed features")
-    a,b,c=st.columns(3)
-    a.metric("Primary model","K-Means")
-    b.metric("Silhouette","0.1418")
-    c.metric("Segments","5")
-    main,side=st.columns([3.2,1.15],gap="large")
-    with main:
-        a,b=st.columns(2)
+elif page=='Risk & Exposure':
+    heading('Risk & Exposure','Understand default frequency, concentration and original loan principal separately')
+    metric_row([('Historical default rate',f'{R:.2f}%','Observed test portfolio rate'),('Original principal',f'{P/1e9:.2f}B','Original principal in dataset units'),('Highest default segment',f'{high_id if (high_id:=int(df.loc[df["Default_Rate_%"].idxmax(),"Cluster"])) is not None else ""}','Cluster ID'),('Largest principal segment',f'{int(df.loc[df["Principal_Share_%"].idxmax(),"Cluster"])}','Cluster ID')])
+    a,b=st.columns(2,gap='large')
+    with a:
+        fig=px.scatter(df,x='Principal_Share_%',y='Default_Rate_%',size='Borrowers',color='Segment_Name',text='Cluster',color_discrete_sequence=PALETTE,title='Principal concentration vs default frequency',hover_data=['Borrowers','Default_Share_%'])
+        fig.update_traces(textposition='top center',marker=dict(line=dict(width=1,color='#8F7900')))
+        chart(fig,450)
+    with b:
+        fig=px.bar(df.sort_values('Default_Share_%'),x='Default_Share_%',y='Segment_Name',orientation='h',color_discrete_sequence=[YELLOW],text='Default_Share_%',title='Contribution to observed defaults')
+        fig.update_traces(texttemplate='%{text:.2f}%',textposition='outside')
+        chart(fig,450)
+    st.subheader('Relative default index')
+    fig=px.bar(df,x='Segment_Name',y='Relative_Default_Index',text='Relative_Default_Index',color_discrete_sequence=[YELLOW],title='Relative default index')
+    fig.add_hline(y=1,line_dash='dash',line_color='#465468',annotation_text='Portfolio average')
+    fig.update_traces(texttemplate='%{text:.2f}×',textposition='outside');fig.update_xaxes(tickangle=-15)
+    chart(fig)
+    _,risk_rail=st.columns([3.2,1.15],gap='large')
+    with risk_rail: insights_panel('Risk interpretation',[('Default frequency','A higher default rate does not necessarily mean larger financial losses.'),('Original principal','Original loan amounts do not represent current exposure, recovery or loss severity.')])
+
+elif page=='Model Lab':
+    heading('Model Lab','Saved notebook experiments · comparisons are descriptive, not live retraining')
+    metric_row([('Primary algorithm','K-Means','Chosen for interpretability'),('Selected clusters','5','K selected after multiple diagnostics'),('Comparison silhouette','0.1418','5,000-borrower common sample'),('Features','24','Five scaled numerical, one flag, eighteen categorical')])
+    tab1,tab2,tab3=st.tabs(['K selection','Algorithm comparison','Stability & visualization'])
+    with tab1:
+        a,b=st.columns(2,gap='large')
         with a:
-            fig=px.bar(BENCHMARK,x="Algorithm",y="Silhouette",text="Silhouette",title="Silhouette comparison",color_discrete_sequence=[YELLOW])
-            fig.update_traces(texttemplate="%{text:.4f}",textposition="outside")
-            st.plotly_chart(plot_style(fig),use_container_width=True)
+            fig=px.line(ELBOW,x='K',y='Inertia',markers=True,title='Elbow: K = 2 to 8',color_discrete_sequence=[GOLD]);fig.add_vline(x=5,line_dash='dash',line_color=INK)
+            chart(fig)
         with b:
-            fig=px.bar(BENCHMARK,x="Algorithm",y="Fit_seconds",text="Fit_seconds",title="Measured fit time",color_discrete_sequence=[YELLOW])
-            fig.update_traces(texttemplate="%{text:.4f}",textposition="outside")
-            st.plotly_chart(plot_style(fig),use_container_width=True)
+            fig=px.bar(SIL,x='K',y='Silhouette',text='Silhouette',title='Silhouette: K = 4, 5, 6',color_discrete_sequence=[YELLOW]);fig.update_traces(texttemplate='%{text:.4f}',textposition='outside');chart(fig)
+        note('K = 4 has a slightly higher silhouette (0.1449 vs 0.1393). K = 5 was preferred for more interpretable borrower profiles, not because it wins every metric.')
+    with tab2:
+        a,b=st.columns(2,gap='large')
+        with a:
+            fig=px.bar(BENCHMARK,x='Algorithm',y='Silhouette',text='Silhouette',color_discrete_sequence=[YELLOW],title='Silhouette on comparison sample');fig.update_traces(texttemplate='%{text:.4f}',textposition='outside');chart(fig)
+        with b:
+            fig=px.bar(BENCHMARK,x='Algorithm',y='Fit time (s)',text='Fit time (s)',color_discrete_sequence=[YELLOW],title='Measured single-run fit time');fig.update_traces(texttemplate='%{text:.4f}s',textposition='outside');chart(fig)
         st.dataframe(BENCHMARK,hide_index=True,use_container_width=True)
-        st.subheader("Dimensionality reduction")
-        a,b,c=st.columns(3)
-        a.metric("PCA • 7 PCs","93.52% variance")
-        b.metric("PCA • 2 PCs","45.52% variance")
-        c.metric("t-SNE KL divergence","1.5981")
-        st.caption("PCA + K-Means silhouette on 7 PCs: 0.1543, measured in a different feature space. UMAP and t-SNE were used for visualization, not prediction.")
-        st.info("PCA, t-SNE and UMAP scatter plots need saved point-level embeddings. They are not included in the five-row scorecard.")
-    with side:
-        st.markdown('''<div class="right-panel"><h4>Model selection</h4><p>K-Means achieved the highest observed silhouette among the compared algorithms and provided five interpretable business segments.</p></div>''',unsafe_allow_html=True)
-        st.markdown('''<div class="right-panel"><h4>Key limitations</h4><ul><li>Low silhouette scores indicate weak separation.</li><li>DBSCAN silhouette excludes noise, so it is not strictly comparable.</li><li>Single-run fitting times are not production benchmarks.</li><li>2D visualization does not validate model accuracy.</li></ul></div>''',unsafe_allow_html=True)
+        st.caption('DBSCAN silhouette excludes noise observations, so it is not directly comparable. Times are small-sample measurements, not production benchmarks.')
+    with tab3:
+        a,b=st.columns(2,gap='large')
+        with a:
+            fig=px.bar(STABILITY.melt('K',var_name='Test',value_name='ARI'),x='K',y='ARI',color='Test',barmode='group',title='K-Means stability (Adjusted Rand Index)',color_discrete_sequence=[YELLOW,'#465468']);chart(fig)
+        with b:
+            st.markdown('#### Dimensionality reduction')
+            st.metric('PCA · seven components','93.52% variance')
+            st.metric('PCA · two components','45.52% variance')
+            st.metric('PCA + K-Means silhouette','0.1543')
+            st.metric('t-SNE KL divergence','1.5981')
+        st.info('The uploaded scorecard does not contain point-level PCA, t-SNE or UMAP coordinates. This version does not fabricate scatterplots. Export those coordinates from the notebook to enable accurate interactive projections.')
+        st.subheader('Historical risk patterns across time')
+        t=TEMP.melt(id_vars='Cluster',var_name='Period',value_name='Default rate (%)')
+        fig=px.line(t,x='Period',y='Default rate (%)',color='Cluster',markers=True,color_discrete_sequence=PALETTE,title='Cluster default rates across training, validation and test')
+        chart(fig)
+        st.caption('Training: sampled pre-2016 borrowers; validation: 2016; test: 2017–2018. Outcome maturity may differ across vintages.')
 
-elif page == "Borrower Segmentation":
-    page_title(
-        "Borrower Segmentation",
-        "Assign a borrower to one of five K-Means segments using the saved model"
-    )
-    st.info(
-        "This tool assigns a descriptive borrower segment. It does not estimate an "
-        "individual probability of default or recommend credit approval."
-    )
-
-    import joblib
-
-    model_path = ROOT / "models" / "final_kmeans_model.joblib"
-    prep_path = ROOT / "models" / "final_preprocessing.joblib"
-    module_path = ROOT / "borrower_preprocessing.py"
-
-    missing_files = [
-        str(p.relative_to(ROOT))
-        for p in (model_path, prep_path, module_path)
-        if not p.is_file()
-    ]
-    if missing_files:
-        st.error("Required deployment files are missing: " + ", ".join(missing_files))
+elif page=='Dataset Executive Overview':
+    heading('Dataset Executive Overview','Explore the original loan dataset through historical, aggregated EDA with transparent year and dimension filters')
+    if eda.empty:
+        st.error('EDA aggregates missing. Place eda_aggregates.csv in project_outputs/.')
         st.stop()
-
-    @st.cache_resource(show_spinner=False)
-    def load_segmentation_model(path, modified):
-        return joblib.load(path)
-
-    try:
-        from borrower_preprocessing import preprocess_borrowers
-        bundle = load_segmentation_model(
-            str(model_path), model_path.stat().st_mtime
-        )
-        fitted_model = bundle["model"]
-        segment_names = bundle["segment_mapping"]
-    except Exception as exc:
-        st.error(f"Unable to load the segmentation pipeline: {exc}")
-        st.stop()
-
-    left, right = st.columns([2.3, 1], gap="large")
+    years=['All']+sorted([y for y in eda['Year'].astype(str).unique() if y!='All'])
+    filters=st.columns([1,1,1.4],gap='large')
+    with filters[0]:year=st.selectbox('Loan issue year',years,index=0,key='eda_year')
+    with filters[1]:measure=st.selectbox('Chart measure',['Borrowers','Default_Rate_%','Defaults','Principal'],key='eda_measure',format_func=lambda x:{'Borrowers':'Borrower count','Default_Rate_%':'Historical default rate','Defaults':'Default cases','Principal':'Original principal'}[x])
+    with filters[2]:focus=st.selectbox('Detailed breakdown',['Income','DTI','FICO','Loan size','Home ownership','Purpose','Employment','State'],key='eda_focus')
+    vintage=filtered_eda(year,'Vintage')
+    income=filtered_eda(year,'Income');dti_frame=filtered_eda(year,'DTI');fico=filtered_eda(year,'FICO')
+    baseline=filtered_eda(year,'Income')
+    borrowers=int(baseline.Borrowers.sum()) if not baseline.empty else 0
+    defaults=int(baseline.Defaults.sum()) if not baseline.empty else 0
+    principal=float(baseline.Principal.sum()) if not baseline.empty else 0
+    rate=100*defaults/borrowers if borrowers else 0
+    metric_row([('Borrowers in selected cohort',f'{borrowers:,}','Source dataset; all records for selected year'),
+                ('Historical default cases',f'{defaults:,}','Observed defaults in the selected cohort'),
+                ('Historical default rate',f'{rate:.2f}%','Default cases divided by borrowers'),
+                ('Original principal',f'{principal/1e9:.2f}B','Source currency units, not current balance')])
+    st.caption('The year selector filters each precomputed aggregate independently. Category charts are not jointly cross-filtered; for example, choosing an income band does not filter the DTI chart. Aggregates describe the full source dataset, not the K-Means test scorecard.')
+    left,right=st.columns([3.2,1.15],gap='large')
     with left:
-        st.subheader("Borrower details")
-        with st.form("borrower_segmentation_form"):
-            c1, c2 = st.columns(2)
-            with c1:
-                income = st.number_input(
-                    "Annual income (dataset units)", min_value=1.0,
-                    value=75000.0, step=1000.0
-                )
-                loan_amount = st.number_input(
-                    "Original loan amount (dataset units)", min_value=1.0,
-                    value=15000.0, step=500.0
-                )
-                employment = st.selectbox(
-                    "Employment length",
-                    ["< 1 year"] + [f"{i} year" if i == 1 else f"{i} years"
-                                    for i in range(1, 10)] + ["10+ years", "NI"],
-                    index=5
-                )
-                ownership = st.selectbox(
-                    "Home ownership", ["MORTGAGE", "RENT", "OWN", "OTHER"]
-                )
-            with c2:
-                fico = st.number_input(
-                    "FICO score", min_value=300, max_value=850, value=710
-                )
-                dti = st.number_input(
-                    "Debt-to-income ratio (DTI)", min_value=0.0,
-                    value=18.0, step=0.5,
-                    help="Use the same DTI units as the training dataset."
-                )
-                purpose = st.selectbox(
-                    "Loan purpose",
-                    ["car", "credit_card", "debt_consolidation", "educational",
-                     "home_improvement", "house", "major_purchase", "medical",
-                     "moving", "other", "renewable_energy", "small_business",
-                     "vacation", "wedding"],
-                    index=2
-                )
-            submitted = st.form_submit_button(
-                "Assign borrower segment", type="primary", use_container_width=True
-            )
-
-        if submitted:
-            raw = pd.DataFrame([{
-                "revenue": income,
-                "dti_n": dti,
-                "loan_amnt": loan_amount,
-                "fico_n": fico,
-                "emp_length": employment,
-                "home_ownership_n": ownership,
-                "purpose": purpose
-            }])
-            try:
-                features = preprocess_borrowers(raw)
-                if features.columns.tolist() != bundle["feature_columns"]:
-                    raise ValueError("Preprocessed feature order differs from saved model.")
-                cluster = int(fitted_model.predict(features)[0])
-                segment = segment_names[cluster]
-                st.session_state["borrower_segment_result"] = (cluster, segment)
-            except Exception as exc:
-                st.session_state.pop("borrower_segment_result", None)
-                st.error(f"Could not assign segment: {exc}")
-
-        result = st.session_state.get("borrower_segment_result")
-        if result is not None:
-            cluster, segment = result
-            st.success(f"Assigned segment: Cluster {cluster} — {segment}")
-            match = df.loc[df["Cluster"].astype(int) == cluster]
-            if not match.empty:
-                historical = match.iloc[0]
-                a, b, c = st.columns(3)
-                a.metric("Historical segment default rate",
-                         f"{historical['Default_Rate_%']:.2f}%")
-                b.metric("Historical test borrowers",
-                         f"{int(historical['Borrowers']):,}")
-                c.metric("Historical portfolio average", f"{RATE:.2f}%")
-                st.caption(
-                    "Historical segment statistics are from the 2017–2018 test "
-                    "portfolio, not a prediction of this borrower's outcome."
-                )
-
+        st.markdown('### Financial profile at a glance')
+        a,b=st.columns(2,gap='medium')
+        with a:eda_visual(income,measure,'Income distribution / default patterns')
+        with b:eda_visual(dti_frame,measure,'Debt-to-income distribution / defaults')
+        a,b=st.columns(2,gap='medium')
+        with a:eda_visual(fico,measure,'FICO score bands')
+        with b:eda_visual(filtered_eda(year,'Loan size'),measure,'Original loan-size distribution')
+        st.markdown('### Income vs debt burden — aggregated comparison')
+        comparison=filtered_eda(year,focus)
+        if not comparison.empty:
+            comparison=comparison.sort_values('Borrowers',ascending=False).head(18)
+            fig=px.scatter(comparison,x='Avg_Income',y='Avg_DTI',size='Borrowers',color='Default_Rate_%',
+                hover_name='Category',hover_data={'Borrowers':':,','Defaults':':,','Default_Rate_%':':.2f','Avg_FICO':':.1f'},
+                color_continuous_scale=['#FFE49B','#F4B400','#9C6900'],title=f'Average income vs average DTI · {focus} categories',size_max=54)
+            fig.update_xaxes(title='Average annual income (source units)')
+            fig.update_yaxes(title='Average debt-to-income ratio')
+            chart(fig,420)
+        st.markdown('### Borrower composition and risk by category')
+        a,b=st.columns(2,gap='medium')
+        with a:eda_visual(filtered_eda(year,'Home ownership'),measure,'Home ownership')
+        with b:eda_visual(filtered_eda(year,'Purpose').nlargest(10,'Borrowers'),measure,'Top 10 loan purposes',orientation='h')
+        st.markdown('### Drill-down table')
+        details=filtered_eda(year,focus).sort_values('Borrowers',ascending=False)
+        st.dataframe(details[['Category','Borrowers','Defaults','Default_Rate_%','Avg_Income','Avg_FICO','Avg_DTI','Principal']].rename(columns={'Default_Rate_%':'Default rate (%)','Avg_Income':'Avg income','Avg_FICO':'Avg FICO','Avg_DTI':'Avg DTI','Principal':'Original principal'}),hide_index=True,use_container_width=True)
+        csv=details.to_csv(index=False).encode('utf-8')
+        st.download_button('Download filtered aggregate table',csv,file_name=f'eda_{focus.lower().replace(" ","_")}_{year}.csv',mime='text/csv')
     with right:
-        st.markdown(
-            '<div class="right-panel"><h4>How it works</h4>'
-            '<p>Raw borrower details are transformed using the saved income '
-            'logarithm, DTI cap, employment mapping, numerical scaler and '
-            'categorical encoder. The fitted K-Means model assigns a cluster.</p>'
-            '</div>', unsafe_allow_html=True
-        )
-        st.markdown(
-            '<div class="right-panel"><h4>Interpretation</h4>'
-            '<p>The segment name summarizes a historical group. Its observed '
-            'default rate is descriptive and must not be treated as an '
-            'individual credit-risk probability.</p>'
-            '</div>', unsafe_allow_html=True
-        )
-        st.markdown(
-            '<div class="right-panel"><h4>Model limitations</h4>'
-            '<p>Cluster separation is relatively weak. Training-data '
-            'categories and numeric ranges may not represent future applicants. '
-            'Do not use this dashboard for lending decisions.</p>'
-            '</div>', unsafe_allow_html=True
-        )
+        highest_dti=dti_frame.loc[dti_frame['Default_Rate_%'].idxmax()] if not dti_frame.empty else None
+        highest_fico=fico.loc[fico['Default_Rate_%'].idxmin()] if not fico.empty else None
+        largest_income=income.loc[income['Borrowers'].idxmax()] if not income.empty else None
+        messages=[('Selected cohort',f'{borrowers:,} borrowers with {rate:.2f}% historical defaults. These are descriptive source-data figures.'),
+                  ('Income mix',f'Largest income band by borrower count: {largest_income.Category} ({int(largest_income.Borrowers):,} borrowers).' if largest_income is not None else 'Income distribution unavailable.'),
+                  ('Debt burden',f'Highest observed DTI-band default rate: {highest_dti.Category} ({highest_dti["Default_Rate_%"]:.2f}%).' if highest_dti is not None else 'DTI data unavailable.'),
+                  ('Credit-score profile',f'Lowest observed FICO-band default rate: {highest_fico.Category} ({highest_fico["Default_Rate_%"]:.2f}%).' if highest_fico is not None else 'FICO data unavailable.'),
+                  ('How to read the bubble chart','Each bubble is a category average, not an individual borrower. Bubble size shows borrower count; colour shows historical default rate.'),
+                  ('Business caution','Patterns are associations, not causal explanations. Different issue-year cohorts can have different time available to default.')]
+        insights_panel('Executive EDA takeaways',messages,f'Issue year: {year} · Original dataset')
+        with st.container(border=True):
+            st.markdown('#### Analyst notes')
+            st.caption('The displayed measures come from saved EDA aggregates. There is no fabricated borrower-level joint distribution or live model retraining.')
+            st.caption('Income, DTI and FICO category averages are calculated independently within each breakdown. A year filter is applied consistently to every view.')
 
-else:
-    page_title("Anomaly Analysis", "DBSCAN exploration on 5,000 training borrowers • eps=1.4, min_samples=10")
-    a,b,c,e=st.columns(4)
-    a.metric("Training sample","5,000")
-    b.metric("Noise observations","809")
-    c.metric("Noise share","16.18%")
-    e.metric("Default-rate test p-value","0.1806")
-    main,side=st.columns([3.2,1.15],gap="large")
-    with main:
-        a,b=st.columns(2)
-        for col,metric,title in [(a,"Historical default rate (%)","Historical default rate"),(b,"Average FICO","Average FICO")]:
-            with col:
-                fig=px.bar(ANOMALY,x="Group",y=metric,text=metric,title=title,color="Group",color_discrete_map={"Clustered":YELLOW,"Noise":DARK_YELLOW})
-                fig.update_traces(textposition="outside")
-                fig.update_layout(showlegend=False)
-                st.plotly_chart(plot_style(fig),use_container_width=True)
-        a,b=st.columns(2)
-        for col,metric,title in [(a,"Average income","Average original income"),(b,"Average DTI","Average debt-to-income ratio")]:
-            with col:
-                fig=px.bar(ANOMALY,x="Group",y=metric,text=metric,title=title,color="Group",color_discrete_map={"Clustered":YELLOW,"Noise":DARK_YELLOW})
-                fig.update_traces(textposition="outside")
-                fig.update_layout(showlegend=False)
-                st.plotly_chart(plot_style(fig),use_container_width=True)
-        st.dataframe(ANOMALY,hide_index=True,use_container_width=True)
-    with side:
-        st.markdown('''<div class="right-panel"><h4>Objective</h4><p>Identify unusual feature combinations and compare their historical financial characteristics with those of borrowers in dense groups.</p></div>''',unsafe_allow_html=True)
-        st.markdown('''<div class="right-panel"><h4>Key takeaways</h4><ul><li>Noise default rate: <b>17.06%</b>.</li><li>Clustered default rate: <b>19.06%</b>.</li><li>Difference: <b>−2.01 percentage points</b>.</li><li>Two-proportion test p-value: <b>0.1806</b>.</li><li>95% CI: <b>−4.73 to +0.97 percentage points</b>.</li></ul></div>''',unsafe_allow_html=True)
-        st.markdown('''<div class="right-panel"><h4>Important caution</h4><p>The default-rate difference is not statistically significant at 5%. DBSCAN noise is not a fraud flag or proof of elevated credit risk.</p></div>''',unsafe_allow_html=True)
+elif page=='Borrower Sandbox':
+    heading('Borrower Sandbox','Apply the saved preprocessing and K-Means model to one illustrative borrower')
+    st.warning('This is a descriptive segment assignment, not a default probability, credit score, approval decision or lending recommendation.')
+    a,b=st.columns([1.8,1],gap='large')
+    with a:
+        with st.form('borrower'):
+            l,r=st.columns(2,gap='large')
+            with l:
+                income=st.number_input('Annual income (source units)',min_value=1.,value=75000.,step=1000.)
+                amount=st.number_input('Original loan amount (source units)',min_value=1.,value=15000.,step=500.)
+                fico=st.number_input('FICO score',min_value=300,max_value=850,value=710)
+                employment=st.selectbox('Employment length',['< 1 year']+[f'{i} year' if i==1 else f'{i} years' for i in range(1,10)]+['10+ years','NI'],index=5)
+            with r:
+                dti=st.number_input('Debt-to-income ratio',min_value=0.,value=18.,step=.5)
+                ownership=st.selectbox('Home ownership',['MORTGAGE','RENT','OWN','OTHER'])
+                purpose=st.selectbox('Loan purpose',['car','credit_card','debt_consolidation','educational','home_improvement','house','major_purchase','medical','moving','other','renewable_energy','small_business','vacation','wedding'],index=2)
+            submit=st.form_submit_button('Assign borrower segment',type='primary',use_container_width=True)
+        if submit:
+            try:
+                import joblib
+                from borrower_preprocessing import preprocess_borrowers
+                bundle=joblib.load(ROOT/'models'/'final_kmeans_model.joblib')
+                raw=pd.DataFrame([{'revenue':income,'loan_amnt':amount,'fico_n':fico,'dti_n':dti,'emp_length':employment,'home_ownership_n':ownership,'purpose':purpose}])
+                features=preprocess_borrowers(raw)
+                if features.columns.tolist()!=bundle['feature_columns']:
+                    raise ValueError('Saved model and preprocessing feature order differ')
+                cluster=int(bundle['model'].predict(features)[0])
+                segment=bundle['segment_mapping'][cluster]
+                st.session_state['result']=(cluster,segment)
+            except Exception as exc:
+                st.session_state.pop('result',None)
+                st.error(f'Unable to assign segment: {exc}')
+        if 'result' in st.session_state:
+            cluster,segment=st.session_state['result']
+            s=df[df.Cluster==cluster].iloc[0]
+            st.success(f'Assigned: Cluster {cluster} — {segment}')
+            metric_row([('Segment default rate',f'{s["Default_Rate_%"]:.2f}%','Historical test segment, not individual probability'),('Relative default index',f'{s["Relative_Default_Index"]:.2f}×','Compared with test average'),('Segment borrowers',f'{int(s.Borrowers):,}','Historical test count')])
+            st.caption('This assignment describes similarity to historical groups; the displayed default rate does not predict this borrower’s outcome.')
+    with b:
+        with st.container(border=True):
+            st.subheader('What happens behind the form?')
+            st.markdown('**1.** Validate raw borrower inputs.\n\n**2.** Log-transform income and cap DTI.\n\n**3.** Convert and impute employment duration.\n\n**4.** Apply saved numerical scaler and categorical encoder.\n\n**5.** Send 24 features to the fitted K-Means model.')
+            st.divider()
+            st.caption('Source currency and units have not been independently verified. Avoid using this demonstration for underwriting.')
 
 st.divider()
-st.caption("Research dashboard • Historical descriptive analysis only • No individual underwriting decisions • Loan-vintage outcome periods may differ")
+st.caption('Credit Portfolio Intelligence · White & Yellow Edition · Historical descriptive research · No individual underwriting decisions')
